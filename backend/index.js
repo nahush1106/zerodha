@@ -4,214 +4,76 @@ const express = require("express");
 const mongoose = require("mongoose");
 const bodyParser = require("body-parser");
 const cors = require("cors");
+const helmet = require("helmet");
 
-const { HoldingsModel } = require("./model/HoldingsModel");
+const authRoutes = require("./routes/authRoutes");
+const marketRoutes = require("./routes/marketRoutes");
+const orderRoutes = require("./routes/orderRoutes");
+const portfolioRoutes = require("./routes/portfolioRoutes");
+const fundsRoutes = require("./routes/fundsRoutes");
+const { loginLimiter, signupLimiter } = require("./middleware/rateLimit");
+const { seedStocks, migrateUsers } = require("./utils/startup");
+const { startPriceEngine } = require("./services/priceEngine");
 
-const { PositionsModel } = require("./model/PositionsModel");
-const { OrdersModel } = require("./model/OrdersModel");
+// ---- Refuse to start with a weak or missing secret ----
+const secret = process.env.JWT_SECRET;
+if (!secret || secret.length < 32 || secret.startsWith("replace-me")) {
+  console.error(
+    "JWT_SECRET is missing or too weak. Use a random string of at least 32 characters.\n" +
+      "Generate one with:\n" +
+      "  node -e \"console.log(require('crypto').randomBytes(48).toString('hex'))\""
+  );
+  process.exit(1);
+}
 
 const PORT = process.env.PORT || 3002;
 const uri = process.env.MONGO_URL;
 
+// Allowed browser origins. Trailing slashes are removed so
+// "https://site.onrender.com/" and "https://site.onrender.com" both work.
+const clean = (url) => url.trim().replace(/\/+$/, "");
+const allowedOrigins = [
+  clean(process.env.FRONTEND_URL || "http://localhost:3000"),
+  clean(process.env.DASHBOARD_URL || "http://localhost:3001"),
+];
+
 const app = express();
 
-app.use(cors());
+// The app runs behind the host's proxy. This makes req.ip the real visitor IP
+// (needed for rate limiting). Set TRUST_PROXY=0 if you run without a proxy.
+app.set("trust proxy", Number(process.env.TRUST_PROXY || 1));
+
+app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
+app.use(cors({ origin: allowedOrigins }));
 app.use(bodyParser.json());
 
-// app.get("/addHoldings", async (req, res) => {
-//   let tempHoldings = [
-//     {
-//       name: "BHARTIARTL",
-//       qty: 2,
-//       avg: 538.05,
-//       price: 541.15,
-//       net: "+0.58%",
-//       day: "+2.99%",
-//     },
-//     {
-//       name: "HDFCBANK",
-//       qty: 2,
-//       avg: 1383.4,
-//       price: 1522.35,
-//       net: "+10.04%",
-//       day: "+0.11%",
-//     },
-//     {
-//       name: "HINDUNILVR",
-//       qty: 1,
-//       avg: 2335.85,
-//       price: 2417.4,
-//       net: "+3.49%",
-//       day: "+0.21%",
-//     },
-//     {
-//       name: "INFY",
-//       qty: 1,
-//       avg: 1350.5,
-//       price: 1555.45,
-//       net: "+15.18%",
-//       day: "-1.60%",
-//       isLoss: true,
-//     },
-//     {
-//       name: "ITC",
-//       qty: 5,
-//       avg: 202.0,
-//       price: 207.9,
-//       net: "+2.92%",
-//       day: "+0.80%",
-//     },
-//     {
-//       name: "KPITTECH",
-//       qty: 5,
-//       avg: 250.3,
-//       price: 266.45,
-//       net: "+6.45%",
-//       day: "+3.54%",
-//     },
-//     {
-//       name: "M&M",
-//       qty: 2,
-//       avg: 809.9,
-//       price: 779.8,
-//       net: "-3.72%",
-//       day: "-0.01%",
-//       isLoss: true,
-//     },
-//     {
-//       name: "RELIANCE",
-//       qty: 1,
-//       avg: 2193.7,
-//       price: 2112.4,
-//       net: "-3.71%",
-//       day: "+1.44%",
-//     },
-//     {
-//       name: "SBIN",
-//       qty: 4,
-//       avg: 324.35,
-//       price: 430.2,
-//       net: "+32.63%",
-//       day: "-0.34%",
-//       isLoss: true,
-//     },
-//     {
-//       name: "SGBMAY29",
-//       qty: 2,
-//       avg: 4727.0,
-//       price: 4719.0,
-//       net: "-0.17%",
-//       day: "+0.15%",
-//     },
-//     {
-//       name: "TATAPOWER",
-//       qty: 5,
-//       avg: 104.2,
-//       price: 124.15,
-//       net: "+19.15%",
-//       day: "-0.24%",
-//       isLoss: true,
-//     },
-//     {
-//       name: "TCS",
-//       qty: 1,
-//       avg: 3041.7,
-//       price: 3194.8,
-//       net: "+5.03%",
-//       day: "-0.25%",
-//       isLoss: true,
-//     },
-//     {
-//       name: "WIPRO",
-//       qty: 4,
-//       avg: 489.3,
-//       price: 577.75,
-//       net: "+18.08%",
-//       day: "+0.32%",
-//     },
-//   ];
+// Used by the host to check that the server is alive
+app.get("/health", (req, res) => res.json({ status: "ok" }));
 
-//   tempHoldings.forEach((item) => {
-//     let newHolding = new HoldingsModel({
-//       name: item.name,
-//       qty: item.qty,
-//       avg: item.avg,
-//       price: item.price,
-//       net: item.day,
-//       day: item.day,
-//     });
+app.use("/auth/login", loginLimiter);
+app.use("/auth/signup", signupLimiter);
+app.use("/auth", authRoutes);
+app.use("/", marketRoutes); // GET /stocks
+app.use("/", orderRoutes); // POST /newOrder, GET /allOrders
+app.use("/", portfolioRoutes); // GET /allHoldings, /allPositions, /summary
+app.use("/", fundsRoutes); // POST /funds/add, /funds/withdraw
 
-//     newHolding.save();
-//   });
-//   res.send("Done!");
-// });
+// Start the server only after the database is connected
+mongoose
+  .connect(uri)
+  .then(async () => {
+    console.log("DB connected!");
+    await seedStocks();
+    await migrateUsers();
 
-// app.get("/addPositions", async (req, res) => {
-//   let tempPositions = [
-//     {
-//       product: "CNC",
-//       name: "EVEREADY",
-//       qty: 2,
-//       avg: 316.27,
-//       price: 312.35,
-//       net: "+0.58%",
-//       day: "-1.24%",
-//       isLoss: true,
-//     },
-//     {
-//       product: "CNC",
-//       name: "JUBLFOOD",
-//       qty: 1,
-//       avg: 3124.75,
-//       price: 3082.65,
-//       net: "+10.04%",
-//       day: "-1.35%",
-//       isLoss: true,
-//     },
-//   ];
+    // Keep this on a single server instance (see README)
+    if (process.env.DISABLE_PRICE_ENGINE !== "true") startPriceEngine();
 
-//   tempPositions.forEach((item) => {
-//     let newPosition = new PositionsModel({
-//       product: item.product,
-//       name: item.name,
-//       qty: item.qty,
-//       avg: item.avg,
-//       price: item.price,
-//       net: item.net,
-//       day: item.day,
-//       isLoss: item.isLoss,
-//     });
-
-//     newPosition.save();
-//   });
-//   res.send("Done!");
-// });
-
-app.get("/allHoldings", async (req, res) => {
-  let allHoldings = await HoldingsModel.find({});
-  res.json(allHoldings);
-});
-
-app.get("/allPositions", async (req, res) => {
-  let allPositions = await PositionsModel.find({});
-  res.json(allPositions);
-});
-
-app.post("/newOrder", async (req, res) => {
-  let newOrder = new OrdersModel({
-    name: req.body.name,
-    qty: req.body.qty,
-    price: req.body.price,
-    mode: req.body.mode,
+    app.listen(PORT, () => {
+      console.log(`App started on port ${PORT}!`);
+    });
+  })
+  .catch((err) => {
+    console.error("DB connection failed:", err.message);
+    process.exit(1);
   });
-
-  newOrder.save();
-
-  res.send("Order saved!");
-});
-
-app.listen(PORT, () => {
-  console.log("App started!");
-  mongoose.connect(uri);
-  console.log("DB started!");
-});

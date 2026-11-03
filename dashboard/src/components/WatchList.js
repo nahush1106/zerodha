@@ -1,6 +1,5 @@
 import React, { useState, useContext } from "react";
 
-import axios from "axios";
 
 import GeneralContext from "./GeneralContext";
 
@@ -13,12 +12,23 @@ import {
   MoreHoriz,
 } from "@mui/icons-material";
 
-import { watchlist } from "../data/data";
 import { DoughnutChart } from "./DoughnoutChart";
 
-const labels = watchlist.map((subArray) => subArray["name"]);
-
 const WatchList = () => {
+  // Prices come from the backend and refresh automatically (see GeneralContext)
+  const {
+    stocks: watchlist,
+    stocksLoading: loading,
+    stocksError: error,
+  } = useContext(GeneralContext);
+  const [search, setSearch] = useState("");
+
+  const visibleStocks = watchlist.filter((stock) =>
+    stock.name.toLowerCase().includes(search.trim().toLowerCase())
+  );
+
+  const labels = watchlist.map((stock) => stock.name);
+
   const data = {
     labels,
     datasets: [
@@ -82,13 +92,27 @@ const WatchList = () => {
           id="search"
           placeholder="Search eg:infy, bse, nifty fut weekly, gold mcx"
           className="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
         />
         <span className="counts"> {watchlist.length} / 50</span>
       </div>
 
+      {loading && (
+        <p style={{ color: "#9b9b9b", padding: "10px 20px", fontSize: "0.8rem" }}>
+          Loading watchlist...
+        </p>
+      )}
+
+      {error && (
+        <p style={{ color: "#df514c", padding: "10px 20px", fontSize: "0.8rem" }}>
+          {error}
+        </p>
+      )}
+
       <ul className="list">
-        {watchlist.map((stock, index) => {
-          return <WatchListItem stock={stock} key={index} />;
+        {visibleStocks.map((stock) => {
+          return <WatchListItem stock={stock} key={stock.name} />;
         })}
       </ul>
 
@@ -124,7 +148,9 @@ const WatchListItem = ({ stock }) => {
           <span className="price">{stock.price}</span>
         </div>
       </div>
-      {showWatchlistActions && <WatchListActions uid={stock.name} />}
+      {showWatchlistActions && (
+        <WatchListActions uid={stock.name} />
+      )}
     </li>
   );
 };
@@ -134,6 +160,10 @@ const WatchListActions = ({ uid }) => {
 
   const handleBuyClick = () => {
     generalContext.openBuyWindow(uid);
+  };
+
+  const handleSellClick = () => {
+    generalContext.openSellWindow(uid);
   };
 
   return (
@@ -153,6 +183,7 @@ const WatchListActions = ({ uid }) => {
           placement="top"
           arrow
           TransitionComponent={Grow}
+          onClick={handleSellClick}
         >
           <button className="sell">Sell</button>
         </Tooltip>

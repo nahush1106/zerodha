@@ -1,0 +1,66 @@
+# Render Blueprint: creates all three apps from this one repository.
+# Secrets and URLs marked "sync: false" are asked for in the Render dashboard.
+services:
+  # ---------------- Backend API ----------------
+  - type: web
+    name: zerodha-backend
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: node index.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: MONGO_URL # your MongoDB Atlas connection string
+        sync: false
+      - key: JWT_SECRET # Render generates a long random value for you
+        generateValue: true
+      - key: FRONTEND_URL # e.g. https://zerodha-frontend.onrender.com
+        sync: false
+      - key: DASHBOARD_URL # e.g. https://zerodha-dashboard.onrender.com
+        sync: false
+
+  # ---------------- Landing website ----------------
+  - type: web
+    name: zerodha-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: build
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: CI # stops warnings from failing the build
+        value: "false"
+      - key: REACT_APP_API_URL # e.g. https://zerodha-backend.onrender.com
+        sync: false
+      - key: REACT_APP_DASHBOARD_URL # e.g. https://zerodha-dashboard.onrender.com
+        sync: false
+    routes:
+      # lets pages like /about work when refreshed
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
+  # ---------------- Trading dashboard ----------------
+  - type: web
+    name: zerodha-dashboard
+    runtime: static
+    rootDir: dashboard
+    buildCommand: npm install && npm run build
+    staticPublishPath: build
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: CI
+        value: "false"
+      - key: REACT_APP_API_URL
+        sync: false
+      - key: REACT_APP_FRONTEND_URL # e.g. https://zerodha-frontend.onrender.com
+        sync: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
