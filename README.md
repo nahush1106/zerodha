@@ -8,8 +8,11 @@ A MERN-stack web app made of three parts: a marketing website, a trading
 dashboard, and a REST API. Users sign up, get ₹1,00,000 of virtual cash, and buy
 and sell stocks whose prices move on their own.
 
-**Live demo:** _add your Render links here_
-**Screenshots:** _add images to `docs/screenshots/` and link them here_
+**Live demo:https://zerodha-frontend-lx49.onrender.com
+**Screenshots:<img width="959" height="429" alt="image" src="https://github.com/user-attachments/assets/593cfd30-0f44-400e-9ac5-9a90532e855a" />
+<img width="959" height="413" alt="image" src="https://github.com/user-attachments/assets/6d2fd69f-6047-4bc4-8efe-b793cf99ad97" />
+
+
 
 ## Features
 
